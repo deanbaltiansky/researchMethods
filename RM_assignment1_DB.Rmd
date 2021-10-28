@@ -40,7 +40,8 @@ m1 <- lm(calledback ~ EliteSchoolCandidate, data = df_exp1)
 apa_lm <- apa_print(m1)
 apa_table(
   apa_lm$table, 
-  caption = "Linear model predicting chance of receiving a call back for an interview from having a degree at an elite university",
+  caption = "Linear model predicting chance of receiving a call back 
+  for an interview from having a degree at an elite university",
   placement = "h"
 )
 ```
