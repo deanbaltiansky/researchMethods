@@ -1,0 +1,48 @@
+---
+title: "Research Methods - Assignment 1"
+author: "Dean Baltiansky"
+date: "10/28/2021"
+output: pdf_document
+---
+
+```{r, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(apaTables)
+library(knitr)
+library(kableExtra)
+library(tinytex)
+library(papaja)
+library(formatR)
+```
+
+```{r, echo = F}
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# 1 Load data
+
+```{r,tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+df_exp1 <- read.csv("https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW1/assignment1-research-methods.csv",sep = "")
+```
+
+# 2 Statistical analyses
+
+Does having an education from an elite college increase the chances of getting
+a callback?
+
+```{r}
+m1 <- lm(calledback ~ EliteSchoolCandidate, data = df_exp1)
+```
+
+# 3 Output
+
+```{r, results = "asis"}
+apa_lm <- apa_print(m1)
+apa_table(
+  apa_lm$table, 
+  caption = "Linear model predicting chance of receiving a call back for an interview from having a degree at an elite university",
+  placement = "h"
+)
+```
+
+The analysis indicates a positive relationship between having a degree at an elite university and getting a call back for an interview. That is, when sending out resumes that are otherwise identical, having a degree at an elite university increases the chances of getting a call back for an interview.
