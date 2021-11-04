@@ -1,0 +1,188 @@
+---
+title: "Research Methods - Assignment 2"
+author: "Dean Baltiansky"
+date: "11/4/2021"
+output: pdf_document
+header-includes:
+ \usepackage{float}
+ \floatplacement{figure}{H}
+
+---
+
+```{r setup, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(apaTables)
+library(knitr)
+library(kableExtra)
+library(tinytex)
+library(papaja)
+library(formatR)
+library(lmerTest)
+```
+```{r global_options, include=TRUE}
+knitr::opts_chunk$set(fig.pos = 'h')
+```
+
+# 1 Load data
+
+Data loaded from: https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW2/vaping-ban-panel.csv
+
+```{r,tidy=TRUE, tidy.opts=list(width.cutoff=60),echo=FALSE}
+df_exp1 <- read.csv("https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW2/vaping-ban-panel.csv",sep = ",") %>% 
+  mutate(State.Id = as.character(State.Id))
+```
+
+# 2 Run Regression to evaluate "parallel trends" requirement 
+
+First, when was the vaping ban implemented?
+
+```{r, warning=F,message=F,results='asis',echo=FALSE}
+df_exp1 %>% 
+  group_by(Year,Vaping.Ban) %>% 
+  summarise(states_N = n()) %>% 
+  ungroup() %>% 
+  group_by(Year) %>% 
+  summarise(Vaping.Ban = sum(Vaping.Ban)) %>% 
+  kable()
+```
+
+Great, so it looks like the ban was implemented in 2021. Wow, what a year. I remember it like it was yesterday.
+
+Now, let's see if states were going in a similar trend up until that point. To that end, I will see if there is a difference in lung hospitalizations between states that implemented bans and states that did not implement bans, before the glorious year of 2021.
+
+```{r,message=F,warning=FALSE,results='asis',echo=FALSE}
+everBan <- df_exp1 %>% 
+  group_by(State.Id) %>% 
+  summarise(sumBan = sum(Vaping.Ban)) %>% 
+  ungroup() %>% 
+  mutate(everBan = ifelse(sumBan > 0,1,0)) %>% 
+  select(-sumBan)
+
+before2021 <- df_exp1 %>% 
+  left_join(everBan,by = "State.Id") %>% 
+  filter(Year < 2021)
+
+m1 <- lmer(Lung.Hospitalizations ~ everBan*Year + (1|State.Id),before2021)
+m1_summary <- summary(m1)
+
+m1_summary_table <- m1_summary$coefficients %>%
+  as.data.frame %>%
+  rename(
+    "$b$" = "Estimate"
+    , "$SE$" = "Std. Error"
+    , "$df$" = "df"
+    , "$t$" = "t value"
+    , "$p$" = "Pr(>|t|)"
+  ) %>%
+  mutate(
+    Effect = papaja:::prettify_terms(rownames(.))
+  ) %>%
+  printnum(
+    digits = c(2, 2, 2, 2, 3, 0)
+    , gt1 = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+    , zero = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+  ) %>%
+  select("$b$","$SE$","$t$","$df$","$p$")
+
+#apa_lm <- apa_print(m1)
+apa_table(m1_summary_table,
+  caption = "Fixed Effects Model Testing the Effect of Year and if 
+  the State Ever Banned Vaping on Lung Hospitalizations",
+  placement = "h",
+  note = "Fixed effects model holds State ID constant",
+  escape = F
+)
+```
+
+Awesome. It looks like, before 2021, there was no difference in the lung hospitalization trend between states that later implemented a vape ban and states that did not. This is indicated by the non-significant interaction between everBan and Lung.Hospitalizations in model above. This allows us to test the effect of the ban in the US by comparing the difference in difference between states that have implemented the ban and states that have not.
+
+# 3 Plot Difference in Difference Lines
+
+```{r,message=F,warning=FALSE,results='asis',echo=FALSE}
+banYear = 2021
+meanHosp = df_exp1 %>% 
+  summarise(meanHosp = mean(Lung.Hospitalizations)) %>% 
+  first()
+
+df_exp1 %>% 
+  left_join(everBan,by = "State.Id") %>% 
+  mutate(everBan = as.factor(everBan)) %>% 
+  ggplot(aes(x = Year,y = Lung.Hospitalizations,color = everBan)) +
+  scale_color_manual(values = c("darkred",
+                                "darkblue"),
+                     labels = c("States that implemented ban",
+                                "States that did NOT implement ban")) +
+  stat_summary(geom = "line",
+               fun.y = "mean",
+               size = 1.2) +
+  geom_vline(xintercept = banYear,
+             size = 1.5,
+             color = "grey28") +
+  annotate(geom = "text",
+           x = banYear,
+           y = 116000,
+           label = "Vape Ban",
+           size = 4,
+           vjust = 0,
+           hjust = -0.1,
+           color = "grey26",
+           fontface = 2) +
+  ylab("Lung Hospitalizations") +
+  scale_x_continuous(breaks = seq(2010,2030,2)) +
+  scale_y_continuous(breaks = seq(107000,117000,1000),
+                     limits = c(107000,117000)) +
+  ggtitle("Figure 1. Difference in Difference Plot") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(color = "grey66"),
+        axis.text.y = element_text(color = "black"),
+        axis.title.y = element_text(color = "black",
+                                    face = "bold"),
+        axis.text.x = element_text(color = "black"),
+        axis.title.x = element_text(color = "black",
+                                    face = "bold"),
+        legend.title = element_blank(),
+        legend.position = "bottom")
+```
+
+# 4 Run Regression to estimate the treatment effect (ban) on lung hospitalizations
+
+```{r,message=F,warning=FALSE,results='asis',echo=FALSE}
+m2 <- lmer(Lung.Hospitalizations ~ Vaping.Ban + (1|State.Id) + (1|Year), df_exp1)
+
+m2_summary <- summary(m2)
+
+m2_summary_table <- m2_summary$coefficients %>%
+  as.data.frame %>%
+  rename(
+    "$b$" = "Estimate"
+    , "$SE$" = "Std. Error"
+    , "$df$" = "df"
+    , "$t$" = "t value"
+    , "$p$" = "Pr(>|t|)"
+  ) %>%
+  mutate(
+    Effect = papaja:::prettify_terms(rownames(.))
+  ) %>%
+  printnum(
+    digits = c(2, 2, 2, 2, 3, 0)
+    , gt1 = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+    , zero = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+  ) %>%
+  select("$b$","$SE$","$t$","$df$","$p$")
+
+apa_table(m2_summary_table,
+  caption = "Fixed Effects Model Testing the Effect of State Vape Ban on Lung Hospitalizations",
+  placement = "h",
+  note = "Fixed effects model holds State ID and year constant\nThis is supposed to be placed under the headline below, but I can't figure  out how to do it markdown ):",
+  escape = F
+)
+```
+
+As we see here, implementing the ban decreased the number of lung hospitalizations in a given state. We can see this with the negative and significant coefficient of ban on hospitalizations, holding year and state ID as fixed effects.
+
+
+
+
