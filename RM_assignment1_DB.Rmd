@@ -31,7 +31,7 @@ Does having an education from an elite college increase the chances of getting
 a callback?
 
 ```{r}
-m1 <- lm(calledback ~ EliteSchoolCandidate, data = df_exp1)
+m1 <- lm(calledback ~ EliteSchoolCandidate + MaleCandidate, data = df_exp1)
 ```
 
 # 3 Output
@@ -46,4 +46,4 @@ apa_table(
 )
 ```
 
-The analysis indicates a positive relationship between having a degree at an elite university and getting a call back for an interview. That is, when sending out resumes that are otherwise identical, having a degree at an elite university increases the chances of getting a call back for an interview.
+The analysis indicates a positive relationship between having a degree at an elite university and getting a call back for an interview. That is, when sending out resumes that are otherwise identical, having a degree at an elite university increases the chances of getting a call back for an interview, adjusting for gender.
