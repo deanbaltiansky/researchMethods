@@ -1,0 +1,246 @@
+---
+title: "Research Methods - Assignment 3"
+author: "Dean Baltiansky"
+date: "11/11/2021"
+output: pdf_document
+floatsintext: yes
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(apaTables)
+library(knitr)
+library(kableExtra)
+library(tinytex)
+library(papaja)
+library(formatR)
+library(lmerTest)
+```
+
+# 1 Load data
+
+Data loaded from: https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW3/sports-and-education.csv
+
+```{r,tidy=TRUE, tidy.opts=list(width.cutoff=60),echo=FALSE}
+df_collegebb <- read.csv("https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW3/sports-and-education.csv",sep = ",") %>% 
+  mutate(College.Id = as.factor(College.Id),
+         Ranked.2017 = as.factor(Ranked.2017))
+```
+
+# 2 Balance table
+
+```{r,results='asis',echo = F}
+m1 <- t.test(Academic.Quality ~ Ranked.2017,data = df_collegebb)
+m2 <- t.test(Athletic.Quality ~ Ranked.2017,data = df_collegebb)
+m3 <- t.test(Near.Big.Market ~ Ranked.2017,data = df_collegebb)
+
+p_values <- as.data.frame(tribble(
+  ~measure,~p_value,
+  "Academic.Quality",m1$p.value,
+  "Athletic.Quality",m2$p.value,
+  "Near.Big.Market",m3$p.value))
+
+
+table1 <- df_collegebb %>% 
+  group_by(Ranked.2017) %>% 
+  summarise(Academic.Quality_m = mean(Academic.Quality),
+            Academic.Quality_sd = sd(Academic.Quality),
+            Athletic.Quality_m = mean(Athletic.Quality),
+            Athletic.Quality_sd = sd(Athletic.Quality),
+            Near.Big.Market_m = mean(Near.Big.Market)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = Ranked.2017,
+              values_from = c(Academic.Quality_m,
+                              Academic.Quality_sd,
+                              Athletic.Quality_m,
+                              Athletic.Quality_sd,
+                              Near.Big.Market_m)) %>% 
+  pivot_longer(Academic.Quality_m_0:Near.Big.Market_m_1,
+               names_to = "names",
+               values_to = "values") %>% 
+  separate(names,into = c("measure","statistic","ranked"),sep = "_") %>% 
+  pivot_wider(names_from = ranked,
+              values_from = values,
+              names_prefix = "ranked_") %>% 
+  pivot_wider(names_from = statistic,
+              values_from = c(ranked_0,ranked_1)) %>% 
+  left_join(p_values,by = "measure") %>% 
+  mutate_at(vars(ranked_0_m:ranked_1_sd),function(x){round(x,2)}) %>% 
+  mutate(p_value = round(p_value,3)) %>% 
+  mutate_all(function(x){replace_na(x,"")}) %>% 
+  rename("Measure" = measure,
+         "Ranked ($M$)" = ranked_1_m,
+         "Ranked ($SD$)" = ranked_1_sd,
+         "Non-Ranked ($M$)" = ranked_0_m,
+         "Non-Ranked ($SD$)" = ranked_0_sd,
+         "$p$" = p_value) %>% 
+  mutate(Measure = ifelse(Measure == "Academic.Quality","Academic Quality",
+                          ifelse(Measure == "Athletic.Quality","Athletic Quality",
+                                 ifelse(Measure == "Near.Big.Market","Near Big Market",NA))))
+
+apa_table(table1,
+          caption = "Balance Table of Obersvable Variables Between Treatment and Control",
+          escape = F,
+          note = "Near big market row indicates the percentage of colleges that are located near a big market city",
+          placement = "h",
+          align = c("l","c","c","c","c","c"))
+
+```
+
+# 3 Interpretation of balance table
+
+Well, it looks like colleges in the treatment condition and control condition are too similar in their athletic quality and their proximity to a big market. Well, this means that the assignment to condition is not random, as it is clearly influenced by some important factors. This will hurt any propensity score model we try build because, if we find an effect, it will be unclear if it is driven by the treatment or by schools' athletic quality and proximity to a big market. 
+
+# 4 Propensity score model
+
+## Factor coefficients
+
+```{r,results='asis',echo = F}
+m1 <- lm(Ranked.2017 ~ Academic.Quality + Athletic.Quality + Near.Big.Market,data = mutate(df_collegebb,Ranked.2017 = as.integer(as.character(Ranked.2017))))
+
+apa_lm <- apa_print(m1)
+apa_table(
+  apa_lm$table, 
+  caption = "Linear model predicting the likelihood of a college being in the treatment condition (vs. control)",
+  placement = "h",
+  align = c("l","c","c","c","c")
+)
+```
+
+See Table 2.
+
+It looks like athletic quality is somewhat predictive of being ranked in college basketball (treatment) and that being near a big market is highly predictive of this.
+
+## Probability of treatment for each college
+
+```{r,results='asis',echo = F}
+df_prs <- data.frame(College.Id = df_collegebb$College.Id,
+                     pr_score = predict(m1, type = "response")) %>% 
+  rename("College ID" = College.Id,
+         "Probability" = pr_score)
+
+df_prs_1 <- df_prs %>% 
+  slice(1:33)
+
+df_prs_2 <- df_prs %>% 
+  slice(34:67)
+
+df_prs_3 <- df_prs %>% 
+  slice(68:100)
+```
+
+```{r,results='asis',echo = F}
+apa_table(df_prs_1,
+          caption = "The probability of each college to be ranked in basketball (1-33)",
+          note = "Based on their academic quality, athletics quality, and proximity to a big market",
+          placement = 'h',
+          align = c("c","c"),
+          row.names = F)
+```
+
+```{r,results='asis',echo = F}
+apa_table(df_prs_2,
+          caption = "The probability of each college to be ranked in basketball (34-67)",
+          note = "Based on their academic quality, athletics quality, and proximity to a big market",
+          placement = 'h',
+          align = c("c","c"),
+          row.names = F)
+```
+
+```{r,results='asis',echo = F}
+apa_table(df_prs_3,
+          caption = "The probability of each college to be ranked in basketball (68-100)",
+          note = "Based on their academic quality, athletics quality, and proximity to a big market",
+          placement = 'h',
+          align = c("c","c"),
+          row.names = F)
+
+```
+
+See Tables 3, 4, and 5.
+
+# 5 Overlap in propensity score between conditions
+
+See Figure 1
+
+```{r,fig.align='center',echo = F}
+df_prs %>% 
+  rename(College.Id = "College ID",
+         propensityScore = "Probability") %>% 
+  left_join(select(df_collegebb,College.Id,Ranked.2017),by = "College.Id") %>% 
+  mutate(Ranked.2017 = ifelse(Ranked.2017 == 1,"Ranked","Not Ranked")) %>% 
+  ggplot(aes(x = propensityScore,fill = Ranked.2017)) +
+  scale_fill_manual(values = c("darkblue",
+                               "darkred")) +
+  geom_histogram(binwidth = 0.04) +
+  scale_x_continuous(breaks = seq(0,1,0.05)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  xlab("Propensity Score") +
+  ylab("Number of Schools") +
+  ggtitle("Figure 1. Propensity scores by condition") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(color = "grey66"),
+        axis.text.y = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        legend.position = "bottom",
+        legend.title = element_blank())
+```
+
+It looks from Figure 1 that colleges with propensity scores of under .20 and .80 and over have no overlap between ranked and non-ranked. So I'll drop those.
+
+```{r,echo=FALSE}
+df_collegebb_onlyOverlap <- df_prs %>% 
+  rename(College.Id = "College ID",
+         propensityScore = "Probability") %>% 
+  left_join(df_collegebb,by = "College.Id") %>% 
+  filter(propensityScore >= .20 & propensityScore < .80)
+```
+
+# 6 Blocking by propensity scores
+
+The remaining 82 colleges are now in blocks of four, grouped by propensity scores.
+
+```{r,echo = F}
+df_collegebb_onlyOverlap <- df_collegebb_onlyOverlap %>% 
+  arrange(desc(propensityScore)) %>% 
+  mutate(rownum = row_number()-1,
+         block = as.factor(rownum%/%4))
+```
+# 7 Treatment effect on alumni donations
+
+```{r,results='asis',echo=FALSE}
+m2 <- lmer(Alumni.Donations.2018 ~ Ranked.2017 + Near.Big.Market + Athletic.Quality + Academic.Quality + (1|block), df_collegebb_onlyOverlap)
+
+m2_summary <- summary(m2)
+
+m2_summary_table <- m2_summary$coefficients %>%
+  as.data.frame %>%
+  rename(
+    "$b$" = "Estimate"
+    , "$SE$" = "Std. Error"
+    , "$df$" = "df"
+    , "$t$" = "t value"
+    , "$p$" = "Pr(>|t|)"
+  ) %>%
+  mutate(
+    Effect = papaja:::prettify_terms(rownames(.))
+  ) %>%
+  printnum(
+    digits = c(2, 2, 2, 2, 3, 0)
+    , gt1 = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+    , zero = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
+  ) %>%
+  select("$b$","$SE$","$t$","$df$","$p$")
+
+apa_table(m2_summary_table,
+  caption = "Fixed effects model testing the effect of being ranked in college basketball on alumni donations",
+  placement = "h",
+  note = "Model adjusts for proximity to big market, atheltic quality, and academic quality. It also holds proximity score blocking as a fixed effect",
+  escape = F
+)
+```
+
+See Table 6 for output of fixed effects model examining the effect of colleges being ranked in college basketball in 2017 on alumni donations in 2018.
