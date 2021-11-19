@@ -1,0 +1,229 @@
+---
+title: "Research Methods - Assignment 4"
+author: "Dean Baltiansky"
+date: "11/17/2021"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(apaTables)
+library(knitr)
+library(kableExtra)
+library(tinytex)
+library(papaja)
+library(formatR)
+library(lmerTest)
+library(ivreg)
+```
+
+# 1 Obama's claim
+
+In his claim of a "cycle of crime," Obama implicitly asserts that being in jail increases the likelihood of being involved in crime post-release. That is, he is claiming that a given individual has a higher likelihood of committing a crime after being in jail, when compared to not being in jail.
+
+# 2 Reaction to friend's suggestion
+
+God bless my friend for their idea, but the analysis they're suggesting won't cut it. First think I'll do is tell them to take Bo Cowgill's research methods class CBS. The second thing I'll say, though, is that we'll need a different approach to answer this question with the given data. 
+
+My friend suggested to run a regression with recidivism as the outcome variable and years spent in prison as the explanatory variable. Well, this will not allow us to make a causal claim. The number of years someone spent in jail is likely influenced by the degree of the crime they committed, so they might just be more prone to commit crimes in general, and not just because of the time they spent in jail. We'll need some more information before we can make the claim that Obama made.
+
+# 3 Load data
+
+Data loaded from: https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW4/crime-iv.csv
+
+```{r,tidy=TRUE, tidy.opts=list(width.cutoff=60),echo=FALSE}
+df_crime <- read.csv("https://raw.githubusercontent.com/bocowgill-collaborations/ResearchMethods-Repository/master/HW4/crime-iv.csv",sep = ",") 
+```
+# 4 Balance test
+
+```{r,results='asis',echo=FALSE}
+m1 <- t.test(Severity.Of.Crime ~ Republican.Judge,data = df_crime)
+
+table1 <- df_crime %>% 
+  group_by(Republican.Judge) %>% 
+  summarise(severity_m = mean(Severity.Of.Crime),
+            severity_sd = sd(Severity.Of.Crime)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = Republican.Judge,
+              values_from = c(severity_m,
+                              severity_sd)) %>% 
+  pivot_longer(severity_m_0:severity_sd_1,
+               names_to = "names",
+               values_to = "values") %>% 
+  separate(names,into = c("measure","statistic","republican.judge"),sep = "_") %>% 
+  pivot_wider(names_from = republican.judge,
+              values_from = values,
+              names_prefix = "republican.judge_") %>% 
+  pivot_wider(names_from = statistic,
+              values_from = c(republican.judge_0,republican.judge_1)) %>% 
+  mutate(p_value = m1$p.value) %>% 
+  mutate_at(vars(republican.judge_0_m:republican.judge_1_sd),function(x){round(x,2)}) %>% 
+  mutate(p_value = round(p_value,3)) %>%  
+  rename("Measure" = measure,
+         "R judge ($M$)" = republican.judge_1_m,
+         "R judge ($SD$)" = republican.judge_1_sd,
+         "D judge ($M$)" = republican.judge_0_m,
+         "D judge ($SD$)" = republican.judge_0_sd,
+         "$p$" = p_value) %>% 
+  mutate(Measure = ifelse(Measure == "severity","Severity of Crime",NA))
+
+apa_table(table1,
+          caption = "Balance Table of Obersvable Variables Between Treatment and Control",
+          escape = F,
+          note = "R = Republican-nominated; D = Democratic-nominated",
+          placement = "h",
+          align = c("l","c","c","c","c","c"))
+
+```
+
+Great, it looks like people are randomly assigned a judge by party affiliation. The severity of the crime does not predict whether they will be assigned a Republican- Democratic-nominated judge. 
+
+# 5 Step 1 Description
+
+In Step 1, we test whether the IV influences compliance for our causal variable of interest. In this case, we'll see if judge assignment (Dem vs Rep) predicts the number of months in jail. Then, we will see if this hold when accounting for control variables (severity of the crime). Finally, we will estimated predicted treatment (adoption_hat) for every observation. That is, we'll estimate months in jail by judge assignment, accounting for severity of crime, for each observation.
+
+# 6 Step 1 Analyses 
+
+## Step 1a
+
+```{r,results='asis',echo=FALSE}
+m1 <- lm(Months.In.Jail ~ Judge.Assignment,rename(df_crime,Judge.Assignment = Republican.Judge))
+
+apa_lm <- apa_print(m1)
+apa_table(
+  apa_lm$table,
+  caption = "Months in jail by judge assignment",
+  placement = "h",
+  align = c("l","c","c","c","c"),
+  note = "1 = Republican-nominated judge; 0 = Democratic-nominated judge"
+)
+```
+
+Judge assignment predicts months in jail in the direction we'd expect. Republican-nominated judges give harsher sentences than Democratic-nominated judges.
+
+## Step 1b
+
+Let's see if this holds when we adjust for severity of crime.
+
+```{r,results='asis',echo=FALSE}
+m1 <- lm(Months.In.Jail ~ Judge.Assignment + Severity.Of.Crime,rename(df_crime,Judge.Assignment = Republican.Judge))
+
+apa_lm <- apa_print(m1)
+apa_table(
+  apa_lm$table,
+  caption = "Months in jail by judge assignment, adjusting for severity of crime",
+  placement = "h",
+  align = c("l","c","c","c","c"),
+  note = "1 = Republican-nominated judge; 0 = Democratic-nominated judge"
+)
+```
+
+Cool. It still holds.
+
+## Step 1c
+
+Now let's get those estimates.
+
+```{r}
+df_crime <- df_crime %>% 
+  mutate(predicted_sentence = predict(m1))
+```
+
+Cool, so now we have predicted sentences by judge assignment and severity of crime.
+
+# 7 Reduced form
+
+```{r}
+m1 <- lm(Recidivates ~ Judge.Assignment + Severity.Of.Crime,
+         rename(df_crime,Judge.Assignment = Republican.Judge))
+
+df_crime <- df_crime %>% 
+  mutate(reduced_form = predict(m1))
+```
+
+# 8 Ratio of reduced form
+
+```{r}
+df_crime <- df_crime %>% 
+  mutate(reduced_form_ratio = reduced_form/predicted_sentence)
+```
+
+# 9 IV regression
+
+```{r,results='asis',echo=F}
+m1 <- ivreg(Recidivates ~ reduced_form_ratio + Severity.Of.Crime
+ | Judge.Assignment + Severity.Of.Crime, 
+ data = rename(df_crime,Judge.Assignment = Republican.Judge))
+
+m1_sum <- summary(m1)
+
+m1_table <- m1_sum$coefficients %>% 
+  as.data.frame %>%
+  rename(
+    "b" = "Estimate"
+    , "SE" = "Std. Error"
+    , "t" = "t value"
+    , "p" = "Pr(>|t|)"
+  ) %>%
+  mutate(
+    Effect = papaja:::prettify_terms(rownames(.))
+  ) %>%
+  printnum(
+    digits = c(2, 2, 2, 2, 3)
+    , gt1 = c(TRUE, TRUE, TRUE, TRUE, FALSE)
+    , zero = c(TRUE, TRUE, TRUE, TRUE, FALSE)
+  ) %>%
+  select("b","SE","t","p")
+
+
+apa_table(
+  m1_table,
+  caption = "IV regression of ratio for predicted sentence on recidivism, with judge assignment as IV",
+  placement = "h",
+  align = c("l","c","c","c","c"),
+  note = "1 = Republican-nominated judge; 0 = Democratic-nominated judge")
+```
+
+# 10 F statistic
+
+The F-statistic for our variable of interest is $$t^2$$, or $$10.932^2 = 119.509$$. This is way beyond the threshold for significance, as indicated by the p-value of under .001.
+
+# 11 Comparison to 8 and 9
+
+This is much more informative.
+
+# 12 Descriptions
+
+In the research design above (using randomized judges), the **always-takers** are the *defendents* who are always *receiving long sentences* no matter *political party that nominated their judge*.
+
+The **never-takers** are the *defendents* who are always *receiving short sentences* no matter *political party that nominated their judge*.
+
+The **compliers** are the *defendents* who are *receiving long sentences* only if *their judge was nominated by a Republican politician*.
+
+The **defiers** are the *defendents* who are *receiving short sentences* only if *their judge was nominated by a Republican politician*.
+
+# 13 Monotonicity assumption
+
+One of the assumptions of IV regressions is that participants do not defy the treatment, that is, do the opposite of what the nudge is intended to achieve. In this context, defiers are those why got low duration of sentences if sentences by a Republican-nominated judge. 
+
+Let's see how many defiers we have in this data set:
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+df_crime %>% 
+  filter(Republican.Judge == 1) %>% 
+  ggplot(aes(x = Months.In.Jail)) +
+  geom_histogram()
+```
+
+Hmm, in this case we should just note the large number of defendants who got **0** months in jail by a Republican-nominated judge, albeit much less than those who got **0** months by a Democratic-nominated judge.
+
+# 14 Compliers
+
+In this data set, compliers are those who are sentenced to long sentences in jail by a Republican-nominated judge. 
+
+# 15 Cycle of crime
+
+In our data set, it seems that the cycle of crime is true for compliers.
+
+
